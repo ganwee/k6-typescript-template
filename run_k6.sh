@@ -56,11 +56,6 @@ done < <(tail -n +2 "$CSV_FILE")
 
 total_rows=${#csv_data[@]}
 
-# Start logging metrics in the background
-./src/utils/graphing/log_metrics.sh & LOG_METRICS_PID=$!
-
-sleep 2
-
 # Loop through each row in the array
 for ((i=0; i<total_rows; i++)); do
   # Split the row into endpoint, restType, and params
@@ -75,18 +70,36 @@ for ((i=0; i<total_rows; i++)); do
   # Increment row counter
   ((row_count++))
   
+  # Start logging metrics in the background
+  ./src/utils/graphing/log_metrics.sh $endpoint & LOG_METRICS_PID=$!
+
+  sleep 2
+
   npm run bundle
+
+  # Run RPS test
+  run_k6_test "$endpoint" "rps" "$restType" "$params"
+
+  sleep 10
+
+  current_time=$(date +"%Y-%m-%d %H:%M:%S")
+  # Run breakdown test
+  run_k6_test "$endpoint" "breakdown" "$restType" "$params"
 
   echo "Processing row $row_count: endpoint=$endpoint, restType=$restType, params=$params"
   
-  # Run RPS test
-  run_k6_test "$endpoint" "rps" "$restType" "$params"
-    
-  # Run breakdown test
-  run_k6_test "$endpoint" "breakdown" "$restType" "$params"
-  
   echo "-----------------------------------"
+
+  # Terminate the log_metrics.sh process
+  kill "$LOG_METRICS_PID" 2>/dev/null
+
+# Wait for the log_metrics.sh process to terminate
+  wait "$LOG_METRICS_PID" 2>/dev/null
   
+  echo "Creating graphical output for CPU processes"
+
+  ts-node src/utils/graphing/logToGraph.ts $endpoint "$current_time"
+
   # Add a 2-minute delay before the next iteration, except for the last row
   if [[ $i -lt $((total_rows - 1)) ]]; then
     echo "Letting system cooldown... Waiting for 2 minutes before the next test..."
@@ -94,14 +107,4 @@ for ((i=0; i<total_rows; i++)); do
   fi
 done
 
-# Terminate the log_metrics.sh process
-kill "$LOG_METRICS_PID" 2>/dev/null
-
-# Wait for the log_metrics.sh process to terminate
-wait "$LOG_METRICS_PID" 2>/dev/null
-
 echo "All tests completed."
-
-echo "Creating graphical output for CPU processes"
-
-ts-node src/utils/graphing/logToGraph.ts

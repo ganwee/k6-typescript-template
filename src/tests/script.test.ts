@@ -7,7 +7,11 @@ import {
 import { api, GetEndpoints, PostEndpoints } from "../utils/endpoints";
 import { formatObjectToJSON } from "../utils/helpers";
 import { textSummary } from "../utils/k6-helpers/testSummary";
-import { MetricType, RestType, TestType } from "../utils/enums";
+import {
+  MetricType,
+  RestType,
+  TestType,
+} from "../utils/enums";
 import { htmlReport } from "https://raw.githubusercontent.com/benc-uk/k6-reporter/main/dist/bundle.js";
 
 //Timing Config
@@ -27,12 +31,12 @@ export const options: any = {
   thresholds: {},
 };
 
-const testType = __ENV.TEST_TYPE ? (__ENV.TEST_TYPE as TestType) : undefined;
-const restType = __ENV.REST_TYPE ? (__ENV.REST_TYPE as RestType) : undefined;
-const apiParams = __ENV.PARAMS ? formatObjectToJSON(__ENV.PARAMS) : "";
 const endpoint = __ENV.ENDPOINT
   ? (__ENV.ENDPOINT as GetEndpoints | PostEndpoints)
   : undefined;
+const testType = __ENV.TEST_TYPE ? (__ENV.TEST_TYPE as TestType) : undefined;
+const restType = __ENV.REST_TYPE ? (__ENV.REST_TYPE as RestType) : undefined;
+const apiParams = __ENV.PARAMS ? formatObjectToJSON(__ENV.PARAMS) : "";
 const resultsPath = __ENV.RESULTS_PATH
   ? __ENV.RESULTS_PATH
   : `./src/results/${endpoint}_${testType}.html`; //hardcoded filePath is relative to root directory (project folder)

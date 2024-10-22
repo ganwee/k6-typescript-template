@@ -1,6 +1,10 @@
 import fs from "fs";
 import { createCanvas, Canvas } from "canvas";
 import { ChartConfiguration, Chart, registerables } from "chart.js";
+import "chartjs-plugin-annotation";
+import { AnnotationOptions } from "chartjs-plugin-annotation";
+
+const endpoint: string = process.argv[2];
 
 // Register Chart.js components
 Chart.register(...registerables);
@@ -44,10 +48,9 @@ async function createChart(data: LogEntry[]): Promise<void> {
 
   // Separate data by command
   const nodeData = data.filter((entry) => entry.command === "node");
-  const paddedNodeData = padData(nodeData, allTimestamps, "node");
-  
-  const k6Data = data.filter((entry) => entry.command === "k6");
-  const paddedK6Data = padData(k6Data, allTimestamps, "k6");
+  const paddedNodeData = padData(nodeData, allTimestamps);
+
+  const sections = defineSections(allTimestamps);
 
   const chartConfig: ChartConfiguration = {
     type: "line",
@@ -57,56 +60,29 @@ async function createChart(data: LogEntry[]): Promise<void> {
         {
           label: "Node CPU%",
           borderWidth: 1,
-                pointRadius: 0,
+          pointRadius: 0,
           data: paddedNodeData.map((row) => row.cpu),
           borderColor: "rgb(75, 192, 192)",
           tension: 0.1,
-          yAxisID: "y1"
+          yAxisID: "y1",
         },
         {
           label: "Node MEM",
           borderWidth: 1,
-                pointRadius: 0,
+          pointRadius: 0,
           data: paddedNodeData.map((row) => row.mem),
           borderColor: "rgb(255, 99, 132)",
           tension: 0.1,
-          yAxisID: "y1"
+          yAxisID: "y1",
         },
         {
           label: "Node RSS",
           borderWidth: 1,
-                pointRadius: 0,
+          pointRadius: 0,
           data: paddedNodeData.map((row) => row.rss),
           borderColor: "rgb(153, 102, 255)",
           tension: 0.1,
-          yAxisID: "y2"
-        },
-        {
-          label: "k6 CPU%",
-          borderWidth: 1,
-                pointRadius: 0,
-          data: paddedK6Data.map((row) => row.cpu),
-          borderColor: "rgb(54, 162, 235)",
-          tension: 0.1,
-          yAxisID: "y1"
-        },
-        {
-          label: "k6 MEM",
-          borderWidth: 1,
-                pointRadius: 0,
-          data: paddedK6Data.map((row) => row.mem),
-          borderColor: "rgb(255, 206, 86)",
-          tension: 0.1,
-          yAxisID: "y1"
-        },
-        {
-          label: "k6 RSS",
-          borderWidth: 1,
-                pointRadius: 0,
-          data: paddedK6Data.map((row) => row.rss),
-          borderColor: "rgb(233, 255, 151)",
-          tension: 0.1,
-          yAxisID: "y2"
+          yAxisID: "y2",
         },
       ],
     },
@@ -116,14 +92,17 @@ async function createChart(data: LogEntry[]): Promise<void> {
       plugins: {
         title: {
           display: true,
-          text: "CPU and Memory Usage Over Time (Node vs k6)",
+          text: "CPU and Memory Usage Over Time (Node)",
         },
         legend: {
           display: true,
           position: "top",
           labels: {
-            boxHeight: 0
-          }
+            boxHeight: 0,
+          },
+        },
+        annotation: {
+          annotations: generateAnnotations(sections),
         },
       },
       scales: {
@@ -159,25 +138,24 @@ async function createChart(data: LogEntry[]): Promise<void> {
 
   try {
     const buffer = canvas.toBuffer("image/png");
-    fs.writeFileSync("./src/results/system/output_graph.png", buffer);
-    console.log("Graph saved as output_graph.png");
+    fs.writeFileSync(
+      `./src/results/system/${endpoint}_output_graph.png`,
+      buffer
+    );
+    console.log(`Graph saved as ${endpoint}_output_graph.png`);
   } catch (error) {
-    console.error("Error saving the graph:", error);
+    console.error("Error saving graph:", error);
   }
 }
 
-function padData(
-  commandData: LogEntry[],
-  allTimestamps: string[],
-  command: "k6" | "node"
-) {
+function padData(commandData: LogEntry[], allTimestamps: string[]) {
   const paddedData = allTimestamps.map((timestamp) => {
     const existingData = commandData.find((d) => d.timestamp === timestamp);
     return existingData
       ? existingData
       : {
           timestamp,
-          command,
+          command: "node",
           cpu: 0.0,
           mem: 0.0,
           rss: 0.0,
@@ -186,10 +164,71 @@ function padData(
   return paddedData;
 }
 
+interface Section {
+  start: string;
+  end: string;
+  label: string;
+}
+
+function defineSections(timestamps: string[]): Section[] {
+  const sectionEnd = timestamps.indexOf(process.argv[3]);
+  return [
+    { start: timestamps[0], end: timestamps[sectionEnd], label: "RPS Test" },
+    {
+      start: timestamps[sectionEnd + 1],
+      end: timestamps[timestamps.length - 1],
+      label: "Breakdown Test",
+    },
+  ];
+}
+
+function generateAnnotations(sections: Section[]) {
+  const annotations: AnnotationOptions[] = [];
+
+  sections.forEach((section, index) => {
+    // Add vertical line at the start of each section (except the first one)
+    if (index > 0) {
+      annotations.push({
+        type: "line",
+        scaleID: "x",
+        value: section.start,
+        borderColor: "rgb(255, 99, 132)",
+        borderWidth: 2,
+        borderDash: [6, 6],
+      });
+    }
+
+    // Add background label for each section
+    annotations.push({
+      type: "box",
+      xMin: section.start,
+      xMax: section.end,
+      yMin: 0,
+      yMax: "max", // "max" is used to cover the whole Y axis
+      backgroundColor: `rgba(75, 192, 192, ${0.05 + index * 0.05})`,
+      borderColor: "transparent",
+      label: {
+        content: section.label, // Label for the section
+        position: "start", // Position the label in the center of the box
+        color: "rgb(225, 234, 205)", // Text color for the label
+        font: {
+          weight: "bold",
+          size: 12,
+        },
+        opacity: 0,
+        // padding: 10, // Ensure there's padding around the text
+        display: true,
+      },
+    });
+  });
+
+  return annotations;
+}
+
 // Main function
-async function main(): Promise<void> {
-  const data = parseLogFile("./src/results/system/output.log");
+async function main(endpoint: string): Promise<void> {
+  const data = parseLogFile(`./src/results/system/${endpoint}_output.log`);
   await createChart(data);
 }
 
-main().catch(console.error);
+main(endpoint).catch(console.error);
